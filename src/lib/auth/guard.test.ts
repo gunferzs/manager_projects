@@ -141,7 +141,7 @@ test("cookie names and options", () => {
   assert.equal(httpSession.name, COOKIE_SESSION);
   assert.equal(httpSession.httpOnly, true);
   assert.equal(httpSession.secure, false);
-  assert.equal(httpSession.sameSite, "lax");
+  assert.equal(httpSession.sameSite, "strict");
   assert.equal(httpSession.path, "/");
   assert.equal(httpSession.maxAge, SESSION_TTL_MS / 1000);
 

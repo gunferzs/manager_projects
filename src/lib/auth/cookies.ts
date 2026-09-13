@@ -7,7 +7,7 @@ export type CookieOptions = {
   name: string;
   httpOnly: boolean;
   secure: boolean;
-  sameSite: "lax";
+  sameSite: "strict";
   path: string;
   maxAge: number;
 };
@@ -17,7 +17,7 @@ export function sessionCookieOptions(https: boolean): CookieOptions {
     name: COOKIE_SESSION,
     httpOnly: true,
     secure: https,
-    sameSite: "lax",
+    sameSite: "strict",
     path: "/",
     maxAge: SESSION_TTL_MS / 1000,
   };
@@ -28,7 +28,7 @@ export function challengeCookieOptions(https: boolean): CookieOptions {
     name: COOKIE_CHALLENGE,
     httpOnly: true,
     secure: https,
-    sameSite: "lax",
+    sameSite: "strict",
     path: "/",
     maxAge: CHALLENGE_TTL_MS / 1000,
   };
