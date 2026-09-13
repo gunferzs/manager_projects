@@ -7,11 +7,21 @@ import { confirmTotpEnroll, generateTotpCode } from "./totp";
 import { CHALLENGE_TTL_MS, SESSION_TTL_MS } from "./types";
 import {
   COOKIE_CHALLENGE,
+  COOKIE_CONFIGURED,
   COOKIE_SESSION,
   challengeCookieOptions,
+  configuredCookieOptions,
   sessionCookieOptions,
 } from "./cookies";
-import { canAccessPath, deniedRedirectPath, identityFromCookies, isPublicPath, resolveIdentity } from "./guard";
+import { CONFIGURED_COOKIE_MAX_AGE_S } from "./types";
+import {
+  canAccessPath,
+  deniedRedirectPath,
+  hasKeyConfiguredFromCookie,
+  identityFromCookies,
+  isPublicPath,
+  resolveIdentity,
+} from "./guard";
 
 const anon = { kind: "anon" as const };
 const challengeId = { kind: "challenge" as const };
@@ -31,6 +41,16 @@ test("canAccessPath table", () => {
   assert.equal(canAccessPath(sessionId, "/projects/x", true), true);
   assert.equal(canAccessPath(sessionId, "/settings", true), true);
   assert.equal(canAccessPath(sessionId, "/setup", true), false);
+});
+
+test("hasKeyConfiguredFromCookie drives access redirects", () => {
+  assert.equal(hasKeyConfiguredFromCookie(undefined), false);
+  assert.equal(hasKeyConfiguredFromCookie(""), false);
+  assert.equal(hasKeyConfiguredFromCookie("1"), true);
+  assert.equal(deniedRedirectPath(anon, "/", hasKeyConfiguredFromCookie(undefined)), "/setup");
+  assert.equal(deniedRedirectPath(anon, "/", hasKeyConfiguredFromCookie("1")), "/login");
+  assert.equal(canAccessPath(anon, "/setup", hasKeyConfiguredFromCookie(undefined)), true);
+  assert.equal(canAccessPath(anon, "/setup", hasKeyConfiguredFromCookie("1")), false);
 });
 
 test("deniedRedirectPath and cookie identity", () => {
@@ -152,6 +172,7 @@ test("resolveIdentity returns anon for unknown token", async () => {
 test("cookie names and options", () => {
   assert.equal(COOKIE_SESSION, "mgr_session");
   assert.equal(COOKIE_CHALLENGE, "mgr_challenge");
+  assert.equal(COOKIE_CONFIGURED, "mgr_configured");
 
   const httpSession = sessionCookieOptions(false);
   assert.equal(httpSession.name, COOKIE_SESSION);
@@ -167,4 +188,11 @@ test("cookie names and options", () => {
   const httpChallenge = challengeCookieOptions(false);
   assert.equal(httpChallenge.name, COOKIE_CHALLENGE);
   assert.equal(httpChallenge.maxAge, CHALLENGE_TTL_MS / 1000);
+
+  const httpConfigured = configuredCookieOptions(false);
+  assert.equal(httpConfigured.name, COOKIE_CONFIGURED);
+  assert.equal(httpConfigured.httpOnly, true);
+  assert.equal(httpConfigured.secure, false);
+  assert.equal(httpConfigured.sameSite, "strict");
+  assert.equal(httpConfigured.maxAge, CONFIGURED_COOKIE_MAX_AGE_S);
 });

@@ -7,6 +7,7 @@ import {
   COOKIE_CHALLENGE,
   COOKIE_SESSION,
   challengeCookieOptions,
+  configuredCookieOptions,
   sessionCookieOptions,
 } from "../../lib/auth/cookies";
 import { formatLockMessage, INVALID_DATA_MESSAGE } from "../../lib/auth/messages";
@@ -42,6 +43,11 @@ function setChallengeCookie(token: string): void {
   cookies().set({ ...opts, value: token });
 }
 
+function setConfiguredCookie(): void {
+  const opts = configuredCookieOptions(isHttps());
+  cookies().set({ ...opts, value: "1" });
+}
+
 function clearAuthCookies(): void {
   const https = isHttps();
   cookies().set({ ...sessionCookieOptions(https), name: COOKIE_SESSION, value: "", maxAge: 0 });
@@ -63,6 +69,7 @@ export async function setupAction(
   try {
     const { token } = await createSetup(getRuntimeDb(), parsed.key);
     setSessionCookie(token);
+    setConfiguredCookie();
   } catch (error) {
     if (typeof error === "object" && error && "code" in error && error.code === "ALREADY_SETUP") {
       redirect("/login");
@@ -88,10 +95,12 @@ export async function loginAction(
   }
   if (result.kind === "challenge") {
     setChallengeCookie(result.token);
+    setConfiguredCookie();
     redirect("/login/totp");
   }
 
   setSessionCookie(result.token);
+  setConfiguredCookie();
   redirect("/");
 }
 
@@ -121,6 +130,7 @@ export async function totpAction(
 
   cookies().set({ ...challengeCookieOptions(isHttps()), name: COOKIE_CHALLENGE, value: "", maxAge: 0 });
   setSessionCookie(result.token);
+  setConfiguredCookie();
   redirect("/");
 }
 

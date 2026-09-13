@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { deniedRedirectPath, identityFromCookies } from "./lib/auth/access";
-import { COOKIE_CHALLENGE, COOKIE_SESSION } from "./lib/auth/cookies";
+import { deniedRedirectPath, hasKeyConfiguredFromCookie, identityFromCookies } from "./lib/auth/access";
+import { COOKIE_CHALLENGE, COOKIE_CONFIGURED, COOKIE_SESSION } from "./lib/auth/cookies";
 
 export function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
@@ -8,7 +8,7 @@ export function middleware(request: NextRequest) {
     session: request.cookies.get(COOKIE_SESSION)?.value,
     challenge: request.cookies.get(COOKIE_CHALLENGE)?.value,
   });
-  const hasKeyConfigured = identity.kind !== "anon";
+  const hasKeyConfigured = hasKeyConfiguredFromCookie(request.cookies.get(COOKIE_CONFIGURED)?.value);
   const target = deniedRedirectPath(identity, pathname, hasKeyConfigured);
 
   const requestHeaders = new Headers(request.headers);

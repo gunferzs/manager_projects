@@ -3,7 +3,13 @@ import type Database from "better-sqlite3";
 import type { GuardIdentity } from "./access";
 
 export type { GuardIdentity };
-export { canAccessPath, deniedRedirectPath, identityFromCookies, isPublicPath } from "./access";
+export {
+  canAccessPath,
+  deniedRedirectPath,
+  hasKeyConfiguredFromCookie,
+  identityFromCookies,
+  isPublicPath,
+} from "./access";
 
 type SessionRow = {
   id: number;

@@ -3,6 +3,10 @@ export type GuardIdentity =
   | { kind: "challenge" }
   | { kind: "session"; sessionId: number };
 
+export function hasKeyConfiguredFromCookie(configuredCookieValue?: string): boolean {
+  return Boolean(configuredCookieValue);
+}
+
 function isStaticAsset(pathname: string): boolean {
   return pathname.startsWith("/_next") || pathname.includes("favicon");
 }
