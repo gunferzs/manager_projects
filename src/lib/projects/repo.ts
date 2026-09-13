@@ -6,6 +6,10 @@ export function listProjects(db: Database.Database): ProjectRow[] {
   return db.prepare("SELECT * FROM projects ORDER BY name COLLATE NOCASE").all() as ProjectRow[];
 }
 
+export function getProjectBySlug(db: Database.Database, slug: string): ProjectRow | undefined {
+  return db.prepare("SELECT * FROM projects WHERE slug = ?").get(slug) as ProjectRow | undefined;
+}
+
 export function normalizeComposeFile(filePath: string): string {
   return path.normalize(filePath.trim()).replaceAll("\\", "/").toLowerCase();
 }

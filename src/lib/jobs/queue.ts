@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { EnqueueInput, EnqueueResult, JobLogStream } from "./types";
+import type { EnqueueInput, EnqueueResult, JobLogStream, JobRow, TargetAccess } from "./types";
 
 const LIFECYCLE_TYPES = new Set(["start", "stop", "restart"]);
 
@@ -37,4 +37,37 @@ export function appendLog(db: Database.Database, jobId: number, stream: JobLogSt
     stream,
     line,
   );
+}
+
+export function getJob(db: Database.Database, jobId: number): JobRow | undefined {
+  return db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId) as JobRow | undefined;
+}
+
+export function listJobLogs(
+  db: Database.Database,
+  jobId: number,
+): Array<{ seq: number; at: string; stream: JobLogStream; line: string }> {
+  return db
+    .prepare("SELECT seq, at, stream, line FROM job_logs WHERE job_id = ? ORDER BY seq")
+    .all(jobId) as Array<{ seq: number; at: string; stream: JobLogStream; line: string }>;
+}
+
+export function getLatestJob(db: Database.Database, projectId: number): JobRow | undefined {
+  return db
+    .prepare("SELECT * FROM jobs WHERE project_id = ? ORDER BY id DESC LIMIT 1")
+    .get(projectId) as JobRow | undefined;
+}
+
+export function getLastSuccessfulStartAccess(
+  db: Database.Database,
+  projectId: number,
+): TargetAccess | null {
+  const row = db
+    .prepare(
+      `SELECT target_access FROM jobs
+       WHERE project_id = ? AND type = 'start' AND status = 'succeeded' AND target_access IS NOT NULL
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(projectId) as { target_access: TargetAccess } | undefined;
+  return row?.target_access ?? null;
 }
