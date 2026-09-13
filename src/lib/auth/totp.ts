@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
 import { authenticator } from "otplib";
+import { writeAudit } from "../audit/log";
 import { decryptString, encryptString } from "../crypto/encrypt";
-import { insertSession } from "./setup";
+import { insertSession, sessionIdByToken } from "./setup";
 
 export type VerifyTotpResult =
   | { kind: "session"; token: string }
@@ -11,6 +12,13 @@ export type VerifyTotpResult =
   | { kind: "ip_mismatch" };
 
 export const TOTP_ATTEMPTS_MAX = 5;
+
+export function isTotpEnabled(db: Database.Database): boolean {
+  const row = db.prepare("SELECT totp_enabled FROM auth_settings WHERE id = 1").get() as
+    | { totp_enabled: number }
+    | undefined;
+  return row?.totp_enabled === 1;
+}
 
 type ChallengeRow = {
   id: number;
@@ -85,6 +93,7 @@ export async function verifyTotp(
     if (challenge) {
       db.prepare("DELETE FROM auth_challenges WHERE id = ?").run(challenge.id);
     }
+    writeAudit(db, { action: "login_totp", ip: clientIp, outcome: "fail" });
     return { kind: "expired" };
   }
 
@@ -111,7 +120,14 @@ export async function verifyTotp(
   }
 
   db.prepare("DELETE FROM auth_challenges WHERE id = ?").run(challenge.id);
-  return { kind: "session", token: insertSession(db, clientIp, now) };
+  const token = insertSession(db, clientIp, now);
+  writeAudit(db, {
+    action: "login_totp",
+    sessionId: sessionIdByToken(db, token),
+    ip: clientIp,
+    outcome: "ok",
+  });
+  return { kind: "session", token };
 }
 
 function recordTotpAttempt(
@@ -125,5 +141,6 @@ function recordTotpAttempt(
   } else {
     db.prepare("UPDATE auth_challenges SET attempts = ? WHERE id = ?").run(next, challenge.id);
   }
+  writeAudit(db, { action: "login_totp", ip: challenge.client_ip, outcome: "fail" });
   return { kind };
 }

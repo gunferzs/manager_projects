@@ -86,4 +86,9 @@ CREATE TABLE IF NOT EXISTS audit_events (
   outcome TEXT NOT NULL CHECK (outcome IN ('ok', 'fail')),
   detail TEXT
 );
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
 `;

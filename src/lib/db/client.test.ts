@@ -34,6 +34,7 @@ test("migrate applies schema to an empty database file", () => {
     assert.ok(tables.includes("jobs"));
     assert.ok(tables.includes("job_logs"));
     assert.ok(tables.includes("audit_events"));
+    assert.ok(tables.includes("app_settings"));
     assert.equal(tables.includes("servers"), false);
     assert.equal(tables.includes("deployments"), false);
   } finally {
@@ -56,6 +57,7 @@ test("migrate creates auth_settings and rejects servers table", () => {
     assert.ok(tables.includes("jobs"));
     assert.ok(tables.includes("job_logs"));
     assert.ok(tables.includes("audit_events"));
+    assert.ok(tables.includes("app_settings"));
     assert.equal(tables.includes("servers"), false);
     assert.equal(tables.includes("deployments"), false);
     const cols = db.prepare("PRAGMA table_info(auth_settings)").all() as Array<{ name: string }>;

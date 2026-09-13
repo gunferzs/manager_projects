@@ -21,3 +21,12 @@ export function readClientIp(input: { remoteAddress?: string; forwardedFor?: str
   }
   return stripIpv4Mapped(input.remoteAddress ?? "");
 }
+
+export function readRequestIp(headers: { get(name: string): string | null }): string {
+  return (
+    readClientIp({
+      remoteAddress: headers.get("x-real-ip") ?? "127.0.0.1",
+      forwardedFor: headers.get("x-forwarded-for") ?? undefined,
+    }) || "127.0.0.1"
+  );
+}

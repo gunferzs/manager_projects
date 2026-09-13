@@ -9,6 +9,7 @@ import { getLanIpv4, getNetworkProfile } from "../network/lan";
 import { resolveAccess, type AccessLevel } from "../status/access";
 import { aggregateStatus, type ProjectStatus } from "../status/aggregate";
 import { probeHttp, probeTcp } from "../status/probes";
+import { isTotpEnabled } from "../auth/totp";
 import { getRuntimeDb } from "../db/client";
 import { getProjectBySlug, listProjects, listProjectServices } from "./repo";
 import type { ProjectRow, ProjectServiceRow } from "./types";
@@ -69,13 +70,6 @@ export type DetailPageData = {
   totpEnabled: boolean;
   networkProfile: NetworkProfile;
 };
-
-function isTotpEnabled(db: Database.Database): boolean {
-  const row = db.prepare("SELECT totp_enabled FROM auth_settings WHERE id = 1").get() as
-    | { totp_enabled: number }
-    | undefined;
-  return row?.totp_enabled === 1;
-}
 
 export function firewallPortsForSlug(names: string[], slug: string): number[] {
   const prefix = `${RULE_PREFIX}${slug}-`;

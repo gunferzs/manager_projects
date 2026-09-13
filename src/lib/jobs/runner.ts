@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { writeAudit } from "../audit/log";
 import { listProjectServices } from "../projects/repo";
 import type { ProjectRow } from "../projects/types";
 import { findPortOwner } from "./ports";
@@ -99,6 +100,7 @@ function failJob(db: Database.Database, jobId: number, summary: string): void {
     new Date().toISOString(),
     jobId,
   );
+  writeJobAudit(db, jobId, "fail");
 }
 
 function succeedJob(db: Database.Database, jobId: number): void {
@@ -106,4 +108,19 @@ function succeedJob(db: Database.Database, jobId: number): void {
     new Date().toISOString(),
     jobId,
   );
+  writeJobAudit(db, jobId, "ok");
+}
+
+function writeJobAudit(db: Database.Database, jobId: number, outcome: "ok" | "fail"): void {
+  const job = db.prepare("SELECT id, project_id, type FROM jobs WHERE id = ?").get(jobId) as
+    | { id: number; project_id: number; type: string }
+    | undefined;
+  if (!job) return;
+  writeAudit(db, {
+    action: job.type,
+    projectId: job.project_id,
+    jobId: job.id,
+    ip: "127.0.0.1",
+    outcome,
+  });
 }

@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
+import { writeAudit } from "../audit/log";
 import { hashSecret } from "../crypto/hash";
 import { SESSION_TTL_MS } from "./types";
 
@@ -25,7 +26,9 @@ export async function createSetup(db: Database.Database, key: string): Promise<{
      VALUES (1, ?, 0, 0, ?)`,
   ).run(keyHash, now.toISOString());
 
-  return { token: insertSession(db, "", now) };
+  const token = insertSession(db, "", now);
+  writeAudit(db, { action: "setup", sessionId: sessionIdByToken(db, token), ip: "", outcome: "ok" });
+  return { token };
 }
 
 export function insertSession(db: Database.Database, ip: string, now: Date): string {
@@ -38,4 +41,12 @@ export function insertSession(db: Database.Database, ip: string, now: Date): str
      VALUES (?, ?, ?, ?, ?)`,
   ).run(tokenHash, created, expires, created, ip);
   return token;
+}
+
+export function sessionIdByToken(db: Database.Database, token: string): number | undefined {
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const row = db.prepare("SELECT id FROM sessions WHERE token_hash = ?").get(tokenHash) as
+    | { id: number }
+    | undefined;
+  return row?.id;
 }

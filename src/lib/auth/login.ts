@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
+import { writeAudit } from "../audit/log";
 import { verifySecret } from "../crypto/hash";
-import { insertSession } from "./setup";
+import { insertSession, sessionIdByToken } from "./setup";
 import {
   CHALLENGE_TTL_MS,
   KEY_LOCK_AFTER,
@@ -28,19 +29,23 @@ export async function submitKey(
   ).get() as AuthSettingsRow | undefined;
 
   if (!row?.key_hash) {
+    writeAudit(db, { action: "login", ip: clientIp, outcome: "fail" });
     return { kind: "invalid" };
   }
 
   if (row.locked_until) {
     const until = new Date(row.locked_until);
     if (until.getTime() > now.getTime()) {
+      writeAudit(db, { action: "login", ip: clientIp, outcome: "fail" });
       return { kind: "locked", until };
     }
   }
 
   const ok = await verifySecret(key, row.key_hash);
   if (!ok) {
-    return recordFailedAttempt(db, row.failed_attempts, now);
+    const failed = recordFailedAttempt(db, row.failed_attempts, now);
+    writeAudit(db, { action: "login", ip: clientIp, outcome: "fail" });
+    return failed;
   }
 
   db.prepare(
@@ -50,10 +55,13 @@ export async function submitKey(
   ).run(now.toISOString());
 
   if (row.totp_enabled === 1) {
+    writeAudit(db, { action: "login", ip: clientIp, outcome: "ok" });
     return { kind: "challenge", token: insertChallenge(db, clientIp, now) };
   }
 
-  return { kind: "session", token: insertSession(db, clientIp, now) };
+  const token = insertSession(db, clientIp, now);
+  writeAudit(db, { action: "login", sessionId: sessionIdByToken(db, token), ip: clientIp, outcome: "ok" });
+  return { kind: "session", token };
 }
 
 function recordFailedAttempt(

@@ -262,3 +262,51 @@ button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
+
+.settings-section {
+  margin: 1.5rem 0;
+}
+
+.settings-section h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.15rem;
+}
+
+.settings-section h3 {
+  margin: 1rem 0 0.5rem;
+  font-size: 1rem;
+}
+
+.secret-box {
+  margin-top: 0.75rem;
+  padding: 0.7rem;
+  background: #f4f4f4;
+  word-break: break-all;
+}
+
+.machine-info {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+}
+
+.machine-info div {
+  display: grid;
+  grid-template-columns: 8rem 1fr;
+  gap: 0.5rem;
+}
+
+.machine-info dt {
+  margin: 0;
+  color: #555;
+}
+
+.machine-info dd {
+  margin: 0;
+}
+
+textarea {
+  font: inherit;
+  padding: 0.45rem 0.55rem;
+  min-height: 6rem;
+}

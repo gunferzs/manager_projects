@@ -2,7 +2,9 @@
 
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { readClientIp } from "../../lib/auth/client-ip";
+import { readRequestIp } from "../../lib/auth/client-ip";
+import { writeAudit } from "../../lib/audit/log";
+import { resolveIdentity } from "../../lib/auth/guard";
 import {
   COOKIE_CHALLENGE,
   COOKIE_SESSION,
@@ -24,13 +26,7 @@ function isHttps(): boolean {
 }
 
 function requestIp(): string {
-  const h = headers();
-  return (
-    readClientIp({
-      remoteAddress: h.get("x-real-ip") ?? "127.0.0.1",
-      forwardedFor: h.get("x-forwarded-for") ?? undefined,
-    }) || "127.0.0.1"
-  );
+  return readRequestIp(headers());
 }
 
 function setSessionCookie(token: string): void {
@@ -135,6 +131,15 @@ export async function totpAction(
 }
 
 export async function logoutAction(): Promise<void> {
+  const db = getRuntimeDb();
+  const sessionToken = cookies().get(COOKIE_SESSION)?.value;
+  const identity = resolveIdentity(db, { session: sessionToken });
+  writeAudit(db, {
+    action: "logout",
+    sessionId: identity.kind === "session" ? identity.sessionId : undefined,
+    ip: requestIp(),
+    outcome: "ok",
+  });
   clearAuthCookies();
   redirect("/login");
 }
