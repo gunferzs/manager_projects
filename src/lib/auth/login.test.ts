@@ -19,3 +19,24 @@ test("wrong key is invalid; right key without totp is session", async () => {
     close();
   }
 });
+
+test("eighth wrong key locks for 15 minutes", async () => {
+  const { db, close } = withTempDb();
+  try {
+    await createSetup(db, "sixteen-chars-ok");
+    const now = new Date("2026-09-13T10:00:00Z");
+    for (let i = 0; i < 7; i++) {
+      const res = await submitKey(db, "wrong-key-not-it", "1.1.1.1", now);
+      assert.equal(res.kind, "invalid");
+    }
+    const locked = await submitKey(db, "wrong-key-not-it", "1.1.1.1", now);
+    assert.equal(locked.kind, "locked");
+    if (locked.kind === "locked") {
+      assert.equal(locked.until.toISOString(), "2026-09-13T10:15:00.000Z");
+    }
+    const still = await submitKey(db, "sixteen-chars-ok", "1.1.1.1", now);
+    assert.equal(still.kind, "locked");
+  } finally {
+    close();
+  }
+});
