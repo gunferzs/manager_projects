@@ -8,7 +8,17 @@ import { confirmTotpEnroll, generateTotpCode, verifyTotp } from "./totp";
 const KEY = "sixteen-chars-ok";
 const MASTER = "master-key-32bytes-minimum-ok!!";
 
+function restoreMasterKey(prev: string | undefined): void {
+  if (prev === undefined) {
+    delete process.env.MANAGER_MASTER_KEY;
+  } else {
+    process.env.MANAGER_MASTER_KEY = prev;
+  }
+}
+
 test("valid key with totp returns challenge not session", async () => {
+  const prevMasterKey = process.env.MANAGER_MASTER_KEY;
+  process.env.MANAGER_MASTER_KEY = MASTER;
   const { db, close } = withTempDb();
   try {
     await createSetup(db, KEY);
@@ -20,10 +30,13 @@ test("valid key with totp returns challenge not session", async () => {
     assert.equal(sessions.n, 1); // only setup session
   } finally {
     close();
+    restoreMasterKey(prevMasterKey);
   }
 });
 
 test("totp from other ip is ip_mismatch and does not create session", async () => {
+  const prevMasterKey = process.env.MANAGER_MASTER_KEY;
+  process.env.MANAGER_MASTER_KEY = MASTER;
   const { db, close } = withTempDb();
   try {
     await createSetup(db, KEY);
@@ -37,10 +50,13 @@ test("totp from other ip is ip_mismatch and does not create session", async () =
     assert.equal(n, 1);
   } finally {
     close();
+    restoreMasterKey(prevMasterKey);
   }
 });
 
 test("five bad totp codes burn challenge", async () => {
+  const prevMasterKey = process.env.MANAGER_MASTER_KEY;
+  process.env.MANAGER_MASTER_KEY = MASTER;
   const { db, close } = withTempDb();
   try {
     await createSetup(db, KEY);
@@ -56,10 +72,13 @@ test("five bad totp codes burn challenge", async () => {
     assert.equal(sixth.kind, "expired");
   } finally {
     close();
+    restoreMasterKey(prevMasterKey);
   }
 });
 
 test("matching ip and code creates session and deletes challenge", async () => {
+  const prevMasterKey = process.env.MANAGER_MASTER_KEY;
+  process.env.MANAGER_MASTER_KEY = MASTER;
   const { db, close } = withTempDb();
   try {
     await createSetup(db, KEY);
@@ -73,5 +92,6 @@ test("matching ip and code creates session and deletes challenge", async () => {
     assert.equal(left, 0);
   } finally {
     close();
+    restoreMasterKey(prevMasterKey);
   }
 });

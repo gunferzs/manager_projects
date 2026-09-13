@@ -19,10 +19,8 @@ type ChallengeRow = {
   attempts: number;
 };
 
-let enrolledMasterKey: string | undefined;
-
 function requireMasterKey(): string {
-  const key = process.env.MANAGER_MASTER_KEY ?? enrolledMasterKey;
+  const key = process.env.MANAGER_MASTER_KEY;
   if (!key) {
     throw Object.assign(new Error("MASTER_KEY_MISSING"), { code: "MASTER_KEY_MISSING" });
   }
@@ -58,7 +56,6 @@ export function confirmTotpEnroll(
     return false;
   }
 
-  enrolledMasterKey = masterKey;
   const encrypted = encryptString(secret, masterKey);
   db.prepare(
     `UPDATE auth_settings
@@ -103,7 +100,12 @@ export async function verifyTotp(
     return recordTotpAttempt(db, challenge, "invalid");
   }
 
-  const secret = decryptString(settings.totp_secret_encrypted, requireMasterKey());
+  let secret: string;
+  try {
+    secret = decryptString(settings.totp_secret_encrypted, requireMasterKey());
+  } catch {
+    return recordTotpAttempt(db, challenge, "invalid");
+  }
   if (!totpAt(now).check(code, secret)) {
     return recordTotpAttempt(db, challenge, "invalid");
   }
