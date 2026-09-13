@@ -1,10 +1,9 @@
 import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
+import type { GuardIdentity } from "./access";
 
-export type GuardIdentity =
-  | { kind: "anon" }
-  | { kind: "challenge" }
-  | { kind: "session"; sessionId: number };
+export type { GuardIdentity };
+export { canAccessPath, deniedRedirectPath, identityFromCookies, isPublicPath } from "./access";
 
 type SessionRow = {
   id: number;
@@ -18,62 +17,6 @@ type ChallengeRow = {
 
 function tokenHash(token: string): string {
   return createHash("sha256").update(token).digest("hex");
-}
-
-function isStaticAsset(pathname: string): boolean {
-  return pathname.startsWith("/_next") || pathname.includes("favicon");
-}
-
-export function isPublicPath(pathname: string, hasKeyConfigured: boolean): boolean {
-  if (isStaticAsset(pathname)) {
-    return true;
-  }
-  if (pathname === "/login") {
-    return true;
-  }
-  if (pathname === "/setup" && !hasKeyConfigured) {
-    return true;
-  }
-  return false;
-}
-
-export function canAccessPath(
-  identity: GuardIdentity,
-  pathname: string,
-  hasKeyConfigured: boolean,
-): boolean {
-  if (isStaticAsset(pathname)) {
-    return true;
-  }
-
-  if (pathname === "/login") {
-    return true;
-  }
-
-  if (pathname === "/setup") {
-    if (identity.kind === "session") {
-      return false;
-    }
-    return !hasKeyConfigured;
-  }
-
-  if (pathname === "/login/totp") {
-    return identity.kind === "challenge";
-  }
-
-  if (identity.kind === "session") {
-    if (pathname === "/") {
-      return true;
-    }
-    if (pathname.startsWith("/projects/")) {
-      return true;
-    }
-    if (pathname === "/settings") {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 export function resolveIdentity(

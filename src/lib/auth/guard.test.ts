@@ -11,7 +11,7 @@ import {
   challengeCookieOptions,
   sessionCookieOptions,
 } from "./cookies";
-import { canAccessPath, isPublicPath, resolveIdentity } from "./guard";
+import { canAccessPath, deniedRedirectPath, identityFromCookies, isPublicPath, resolveIdentity } from "./guard";
 
 const anon = { kind: "anon" as const };
 const challengeId = { kind: "challenge" as const };
@@ -31,6 +31,22 @@ test("canAccessPath table", () => {
   assert.equal(canAccessPath(sessionId, "/projects/x", true), true);
   assert.equal(canAccessPath(sessionId, "/settings", true), true);
   assert.equal(canAccessPath(sessionId, "/setup", true), false);
+});
+
+test("deniedRedirectPath and cookie identity", () => {
+  assert.deepEqual(identityFromCookies({}), { kind: "anon" });
+  assert.deepEqual(identityFromCookies({ challenge: "c" }), { kind: "challenge" });
+  assert.deepEqual(identityFromCookies({ session: "s", challenge: "c" }), {
+    kind: "session",
+    sessionId: 0,
+  });
+  assert.equal(deniedRedirectPath(anon, "/", false), "/setup");
+  assert.equal(deniedRedirectPath(anon, "/", true), "/login");
+  assert.equal(deniedRedirectPath(anon, "/setup", true), "/login");
+  assert.equal(deniedRedirectPath(sessionId, "/setup", true), "/");
+  assert.equal(deniedRedirectPath(anon, "/login", true), null);
+  assert.equal(deniedRedirectPath(challengeId, "/login/totp", true), null);
+  assert.equal(deniedRedirectPath(anon, "/_next/static/chunk.js", true), null);
 });
 
 test("isPublicPath whitelist", () => {
