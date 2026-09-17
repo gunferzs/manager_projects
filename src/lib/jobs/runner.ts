@@ -1,10 +1,12 @@
 import type Database from "better-sqlite3";
 import { writeAudit } from "../audit/log";
-import { listProjectServices } from "../projects/repo";
+import fs from "node:fs";
+import { parseComposeHostPort, parseComposeTargetPort } from "../projects/scan";
+import { listProjectServices, updateServiceHostPort } from "../projects/repo";
 import type { ProjectRow } from "../projects/types";
-import { findPortOwner } from "./ports";
+import { allocateHostPorts, findPortOwner } from "./ports";
 import { appendLog } from "./queue";
-import type { JobDeps, JobRow, TargetAccess } from "./types";
+import type { ComposePortRemap, JobDeps, JobRow, TargetAccess } from "./types";
 
 export async function runJob(db: Database.Database, jobId: number, deps: JobDeps): Promise<void> {
   const job = db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId) as JobRow | undefined;
@@ -35,16 +37,50 @@ export async function runJob(db: Database.Database, jobId: number, deps: JobDeps
 
 async function runStartLike(db: Database.Database, job: JobRow, deps: JobDeps): Promise<void> {
   const project = loadProject(db, job.project_id);
-  const ports = listProjectServices(db, project.id)
+  const services = listProjectServices(db, project.id);
+  const desired = services
     .map((service) => service.host_port)
     .filter((port): port is number => port != null);
 
   const inspect = await deps.listPorts();
-  for (const port of ports) {
-    const owner = findPortOwner(port, inspect);
-    if (owner) {
-      failJob(db, job.id, `Порт ${port} занят: ${owner}`);
-      return;
+  let assigned: Map<number, number>;
+  try {
+    ({ assigned } = allocateHostPorts(
+      desired,
+      inspect.map((item) => item.port),
+    ));
+  } catch (err) {
+    failJob(db, job.id, err instanceof Error ? err.message : String(err));
+    return;
+  }
+
+  const yamlText =
+    project.compose_file && fs.existsSync(project.compose_file)
+      ? fs.readFileSync(project.compose_file, "utf8")
+      : "";
+  const remaps: ComposePortRemap[] = [];
+  const usedPorts: number[] = [];
+
+  for (const service of services) {
+    if (service.host_port == null) continue;
+    const next = assigned.get(service.host_port);
+    if (next == null) continue;
+    usedPorts.push(next);
+    if (next !== service.host_port) {
+      const owner = findPortOwner(service.host_port, inspect) ?? "процесс";
+      appendLog(db, job.id, "system", `Порт ${service.host_port} занят: ${owner}, выбран ${next}`);
+      updateServiceHostPort(db, service.id, next);
+    }
+    const composeHost = yamlText ? parseComposeHostPort(yamlText, service.name) : null;
+    const containerPort =
+      (yamlText ? parseComposeTargetPort(yamlText, service.name) : null) ?? composeHost ?? service.host_port;
+    const publishedFromCompose = composeHost ?? service.host_port;
+    if (next !== publishedFromCompose) {
+      remaps.push({
+        service: service.name,
+        hostPort: next,
+        containerPort,
+      });
     }
   }
 
@@ -54,7 +90,7 @@ async function runStartLike(db: Database.Database, job: JobRow, deps: JobDeps): 
       failJob(db, job.id, "Помощник фаервола недоступен");
       return;
     }
-    const fw = await deps.firewallAllow(ports);
+    const fw = await deps.firewallAllow(usedPorts);
     if (!fw.ok) {
       failJob(db, job.id, fw.message);
       return;
@@ -65,7 +101,7 @@ async function runStartLike(db: Database.Database, job: JobRow, deps: JobDeps): 
     await streamCompose(db, job.id, () => deps.composeStop(project));
   }
 
-  await streamCompose(db, job.id, () => deps.composeUp(project, access));
+  await streamCompose(db, job.id, () => deps.composeUp(project, access, remaps));
   succeedJob(db, job.id);
 }
 

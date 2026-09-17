@@ -1,21 +1,29 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type Database from "better-sqlite3";
 import { withTempDb } from "../test/temp-db";
-import { enqueue, hasActiveLifecycleJob } from "./queue";
+import { enqueue, failActiveJob, hasActiveLifecycleJob } from "./queue";
 import { runJob } from "./runner";
 import type { JobDeps } from "./types";
 
-function insertFakeProject(db: Database.Database, opts?: { hostPort?: number }): number {
+function insertFakeProject(
+  db: Database.Database,
+  opts?: { hostPort?: number; rootPath?: string; composeFile?: string },
+): number {
   const now = new Date().toISOString();
   const slug = `proj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const rootPath = opts?.rootPath ?? "/tmp/fake";
+  const composeFile = opts?.composeFile ?? path.join(rootPath, "docker-compose.yml");
   const result = db
     .prepare(
       `INSERT INTO projects (
         slug, name, description, image_path, root_path, compose_file, compose_project, source, enabled, created_at, updated_at
       ) VALUES (?, ?, NULL, NULL, ?, ?, ?, 'manual', 1, ?, ?)`,
     )
-    .run(slug, slug, "/tmp/fake", "/tmp/fake/docker-compose.yml", slug, now, now);
+    .run(slug, slug, rootPath, composeFile, slug, now, now);
   const projectId = Number(result.lastInsertRowid);
   if (opts?.hostPort != null) {
     db.prepare(
@@ -71,32 +79,70 @@ test("second start while queued is busy", () => {
   }
 });
 
-test("start fails on port conflict before compose", async () => {
+test("start remaps occupied host port and still composeUp", async () => {
   const { db, close } = withTempDb();
   try {
     const projectId = insertFakeProject(db, { hostPort: 3000 });
     const q = enqueue(db, { projectId, type: "start", targetAccess: "machine" });
     if (!q.ok) throw new Error("enqueue");
     let composeCalled = false;
+    let seenRemaps: Array<{ service: string; hostPort: number; containerPort: number }> | undefined;
     await runJob(db, q.jobId, {
-      async *composeUp() {
+      async *composeUp(_project, _access, remaps) {
         composeCalled = true;
+        seenRemaps = remaps;
       },
       async *composeStop() {},
       async listPorts() {
         return [{ port: 3000, kind: "tcp", owner: "wiremock-gui" }];
       },
     });
-    const job = db.prepare("SELECT status, error_summary FROM jobs WHERE id = ?").get(q.jobId) as {
-      status: string;
-      error_summary: string;
-    };
-    assert.equal(job.status, "failed");
-    assert.match(job.error_summary, /3000/);
-    assert.match(job.error_summary, /wiremock-gui/);
-    assert.equal(composeCalled, false);
+    const job = db.prepare("SELECT status FROM jobs WHERE id = ?").get(q.jobId) as { status: string };
+    const service = db
+      .prepare("SELECT host_port FROM project_services WHERE project_id = ?")
+      .get(projectId) as { host_port: number };
+    const lines = db
+      .prepare("SELECT line FROM job_logs WHERE job_id = ?")
+      .all(q.jobId) as Array<{ line: string }>;
+    assert.equal(job.status, "succeeded");
+    assert.equal(service.host_port, 3001);
+    assert.equal(composeCalled, true);
+    assert.deepEqual(seenRemaps, [{ service: "web", hostPort: 3001, containerPort: 3000 }]);
+    assert.ok(lines.some((row) => /3000/.test(row.line) && /3001/.test(row.line) && /wiremock-gui/.test(row.line)));
   } finally {
     close();
+  }
+});
+
+test("start overlays compose host port when db already stores a remapped port", async () => {
+  const { db, close } = withTempDb();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mgr-compose-"));
+  const composeFile = path.join(root, "docker-compose.yml");
+  fs.writeFileSync(
+    composeFile,
+    "services:\n  web:\n    image: nginx\n    ports:\n      - \"3000:80\"\n",
+    "utf8",
+  );
+  try {
+    const projectId = insertFakeProject(db, { hostPort: 3001, rootPath: root, composeFile });
+    const q = enqueue(db, { projectId, type: "start", targetAccess: "machine" });
+    if (!q.ok) throw new Error("enqueue");
+    let seenRemaps: Array<{ service: string; hostPort: number; containerPort: number }> | undefined;
+    await runJob(
+      db,
+      q.jobId,
+      idleDeps({
+        async *composeUp(_project, _access, remaps) {
+          seenRemaps = remaps;
+        },
+      }),
+    );
+    const job = db.prepare("SELECT status FROM jobs WHERE id = ?").get(q.jobId) as { status: string };
+    assert.equal(job.status, "succeeded");
+    assert.deepEqual(seenRemaps, [{ service: "web", hostPort: 3001, containerPort: 80 }]);
+  } finally {
+    close();
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -178,6 +224,29 @@ test("start fails when composeUp throws and does not leave job running", async (
     };
     assert.equal(job.status, "failed");
     assert.match(job.error_summary, /compose exited 1/);
+  } finally {
+    close();
+  }
+});
+
+test("failActiveJob marks queued job failed and ignores succeeded", () => {
+  const { db, close } = withTempDb();
+  try {
+    const projectId = insertFakeProject(db);
+    const queued = enqueue(db, { projectId, type: "start", targetAccess: "lan" });
+    if (!queued.ok) throw new Error("enqueue");
+    failActiveJob(db, queued.jobId, "runner crashed");
+    const failed = db.prepare("SELECT status, error_summary FROM jobs WHERE id = ?").get(queued.jobId) as {
+      status: string;
+      error_summary: string;
+    };
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.error_summary, "runner crashed");
+
+    db.prepare("UPDATE jobs SET status = 'succeeded', error_summary = NULL WHERE id = ?").run(queued.jobId);
+    failActiveJob(db, queued.jobId, "should ignore");
+    const succeeded = db.prepare("SELECT status FROM jobs WHERE id = ?").get(queued.jobId) as { status: string };
+    assert.equal(succeeded.status, "succeeded");
   } finally {
     close();
   }

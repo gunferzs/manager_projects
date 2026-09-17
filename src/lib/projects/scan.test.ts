@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { withTempDb } from "../test/temp-db";
-import { applyScan, parseComposeServices } from "./scan";
+import { applyScan, parseComposeHostPort, parseComposeServices, parseComposeTargetPort } from "./scan";
 
 test("scan creates from compose ls and does not overwrite manual description", () => {
   const { db, close } = withTempDb();
@@ -41,4 +41,6 @@ services:
   assert.equal(services.find((s) => s.name === "backend")?.hostPort, 3001);
   assert.equal(services.find((s) => s.name === "frontend")?.containerName, "volleyball_frontend");
   assert.equal(services.find((s) => s.name === "frontend")?.hostPort, 3000);
+  assert.equal(parseComposeTargetPort('services:\n  web:\n    ports: ["5173:80"]\n', "web"), 80);
+  assert.equal(parseComposeHostPort('services:\n  web:\n    ports: ["5173:80"]\n', "web"), 5173);
 });

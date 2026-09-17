@@ -1,11 +1,17 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { ContainerFact } from "../status/aggregate";
 import type { ProjectRow } from "../projects/types";
-import type { TargetAccess } from "../jobs/types";
+import type { ComposePortRemap, TargetAccess } from "../jobs/types";
 import type { ComposeListItem } from "./types";
 
-export async function* composeUp(project: ProjectRow, access: TargetAccess): AsyncIterable<string> {
+export async function* composeUp(
+  project: ProjectRow,
+  access: TargetAccess,
+  remaps: ComposePortRemap[] = [],
+): AsyncIterable<string> {
   const file = requireComposeFile(project);
   const name = project.compose_project ?? project.slug;
   const env = { ...process.env };
@@ -16,10 +22,39 @@ export async function* composeUp(project: ProjectRow, access: TargetAccess): Asy
       yield "compose публикует как есть";
     }
   }
-  yield* spawnCompose(["compose", "-f", file, "-p", name, "up", "-d", "--build"], {
-    cwd: project.root_path,
-    env,
-  });
+  const args = ["compose", "-f", file];
+  const overlay = remaps.length > 0 ? writePortOverride(project.slug, remaps) : null;
+  if (overlay) {
+    args.push("-f", overlay);
+    yield `порты переназначены: ${remaps.map((item) => `${item.service}→${item.hostPort}`).join(", ")}`;
+  }
+  args.push("-p", name, "up", "-d", "--build");
+  try {
+    yield* spawnCompose(args, {
+      cwd: project.root_path,
+      env,
+    });
+  } finally {
+    if (overlay) {
+      try {
+        fs.unlinkSync(overlay);
+      } catch {
+        // temp overlay is best-effort
+      }
+    }
+  }
+}
+
+function writePortOverride(slug: string, remaps: ComposePortRemap[]): string {
+  const lines = ["services:"];
+  for (const remap of remaps) {
+    lines.push(`  ${remap.service}:`);
+    lines.push("    ports: !override");
+    lines.push(`      - "${remap.hostPort}:${remap.containerPort}"`);
+  }
+  const overlay = path.join(os.tmpdir(), `mgrproj-${slug}-ports.yml`);
+  fs.writeFileSync(overlay, `${lines.join("\n")}\n`, "utf8");
+  return overlay;
 }
 
 export async function* composeStop(project: ProjectRow): AsyncIterable<string> {

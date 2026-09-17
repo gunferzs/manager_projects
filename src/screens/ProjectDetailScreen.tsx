@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getJobAction, restartJobAction, stopJobAction } from "../app/actions/jobs";
+import { invokeJobAction } from "../lib/jobs/action-error";
 import { AppHeader } from "../components/layout/AppHeader";
 import { JobLog } from "../components/jobs/JobLog";
 import { AccessChip } from "../components/projects/AccessChip";
@@ -37,22 +38,29 @@ export function ProjectDetailScreen({
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const tick = async () => {
-      const snapshot = await getJobAction(jobId);
-      if (cancelled || !snapshot) return;
-      setJob({
-        id: snapshot.id,
-        type: jobType,
-        status: snapshot.status,
-        errorSummary: snapshot.errorSummary,
-        logs: snapshot.logs,
-      });
-      if (snapshot.status === "queued" || snapshot.status === "running") {
+      try {
+        const snapshot = await getJobAction(jobId);
+        if (cancelled || !snapshot) return;
+        setJob({
+          id: snapshot.id,
+          type: jobType,
+          status: snapshot.status,
+          errorSummary: snapshot.errorSummary,
+          logs: snapshot.logs,
+        });
+        if (snapshot.status === "queued" || snapshot.status === "running") {
+          timer = setTimeout(() => {
+            void tick();
+          }, 1000);
+          return;
+        }
+        router.refresh();
+      } catch {
+        if (cancelled) return;
         timer = setTimeout(() => {
           void tick();
         }, 1000);
-        return;
       }
-      router.refresh();
     };
 
     void tick();
@@ -66,7 +74,7 @@ export function ProjectDetailScreen({
 
   async function onStop() {
     if (!window.confirm("Остановить проект?")) return;
-    const result = await stopJobAction(project.slug);
+    const result = await invokeJobAction(() => stopJobAction(project.slug));
     if (result.ok) {
       setJob({
         id: result.jobId,
@@ -83,7 +91,7 @@ export function ProjectDetailScreen({
       setStartOpen(true);
       return;
     }
-    const result = await restartJobAction(project.slug);
+    const result = await invokeJobAction(() => restartJobAction(project.slug));
     if (result.ok) {
       setJob({
         id: result.jobId,

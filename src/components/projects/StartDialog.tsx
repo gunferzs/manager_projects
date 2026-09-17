@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getJobAction, startJobAction, type JobSnapshot } from "../../app/actions/jobs";
+import { invokeJobAction, messageForActionFailure } from "../../lib/jobs/action-error";
 import type { NetworkProfile } from "../../lib/network/lan";
 import type { TargetAccess } from "../../lib/jobs/types";
 import { JobLog } from "../jobs/JobLog";
@@ -37,17 +38,25 @@ export function StartDialog({ slug, open, onClose, networkProfile, dockerOk }: S
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const tick = async () => {
-      const snapshot = await getJobAction(jobId);
-      if (cancelled) return;
-      if (snapshot) {
-        setJob(snapshot);
-        if (snapshot.status === "queued" || snapshot.status === "running") {
-          timer = setTimeout(() => {
-            void tick();
-          }, 1000);
-          return;
+      try {
+        const snapshot = await getJobAction(jobId);
+        if (cancelled) return;
+        if (snapshot) {
+          setJob(snapshot);
+          if (snapshot.status === "queued" || snapshot.status === "running") {
+            timer = setTimeout(() => {
+              void tick();
+            }, 1000);
+            return;
+          }
+          router.refresh();
         }
-        router.refresh();
+      } catch (err) {
+        if (cancelled) return;
+        setError(messageForActionFailure(err));
+        timer = setTimeout(() => {
+          void tick();
+        }, 1000);
       }
     };
 
@@ -64,9 +73,9 @@ export function StartDialog({ slug, open, onClose, networkProfile, dockerOk }: S
 
   async function confirm() {
     setError(null);
-    const result = await startJobAction(slug, access);
+    const result = await invokeJobAction(() => startJobAction(slug, access));
     if (!result.ok) {
-      setError(result.reason === "busy" ? "Уже выполняется задача" : "Проект не найден");
+      setError(result.message);
       return;
     }
     setJobId(result.jobId);

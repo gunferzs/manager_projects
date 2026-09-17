@@ -20,6 +20,7 @@ export type ProjectRow = {
 export type ParsedComposeService = {
   name: string;
   hostPort: number | null;
+  containerPort: number | null;
   containerName: string | null;
 };
 

@@ -18,8 +18,18 @@ export type EnqueueResult = { ok: true; jobId: number } | { ok: false; reason: "
 
 export type PortInspect = { port: number; kind: "tcp"; owner: string };
 
+export type ComposePortRemap = {
+  service: string;
+  hostPort: number;
+  containerPort: number;
+};
+
 export type JobDeps = {
-  composeUp(project: ProjectRow, access: TargetAccess): AsyncIterable<string>;
+  composeUp(
+    project: ProjectRow,
+    access: TargetAccess,
+    remaps?: ComposePortRemap[],
+  ): AsyncIterable<string>;
   composeStop(project: ProjectRow): AsyncIterable<string>;
   listPorts(): Promise<PortInspect[]>;
   firewallAllow?(ports: number[]): Promise<{ ok: true } | { ok: false; message: string }>;

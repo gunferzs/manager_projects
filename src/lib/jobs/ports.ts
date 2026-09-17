@@ -7,6 +7,41 @@ export function findPortOwner(port: number, inspect: PortInspect[]): string | nu
   return inspect.find((item) => item.port === port && item.kind === "tcp")?.owner ?? null;
 }
 
+export type PortRemap = { from: number; to: number };
+
+export function allocateHostPorts(
+  desired: number[],
+  occupied: Iterable<number>,
+): { assigned: Map<number, number>; remaps: PortRemap[] } {
+  const taken = new Set(occupied);
+  const assigned = new Map<number, number>();
+  const remaps: PortRemap[] = [];
+
+  for (const port of desired) {
+    if (assigned.has(port)) continue;
+    const next = nextFreePort(port, taken);
+    if (next == null) {
+      throw new Error(`Нет свободного порта рядом с ${port}`);
+    }
+    assigned.set(port, next);
+    taken.add(next);
+    if (next !== port) remaps.push({ from: port, to: next });
+  }
+
+  return { assigned, remaps };
+}
+
+function nextFreePort(desired: number, taken: Set<number>): number | null {
+  if (desired >= 1024 && desired <= 65535 && !taken.has(desired)) return desired;
+  for (let port = Math.max(desired + 1, 1024); port <= 65535; port += 1) {
+    if (!taken.has(port)) return port;
+  }
+  for (let port = 1024; port < desired; port += 1) {
+    if (!taken.has(port)) return port;
+  }
+  return null;
+}
+
 export function parseNetstatListening(text: string, namesByPid: Map<string, string> = new Map()): PortInspect[] {
   const found = new Map<number, string>();
   for (const raw of text.split(/\r?\n/)) {

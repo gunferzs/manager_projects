@@ -53,6 +53,10 @@ export function listProjectServices(db: Database.Database, projectId: number): P
   return db.prepare("SELECT * FROM project_services WHERE project_id = ?").all(projectId) as ProjectServiceRow[];
 }
 
+export function updateServiceHostPort(db: Database.Database, serviceId: number, hostPort: number): void {
+  db.prepare("UPDATE project_services SET host_port = ? WHERE id = ?").run(hostPort, serviceId);
+}
+
 export function insertDraftServices(
   db: Database.Database,
   projectId: number,

@@ -1,13 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import path from "node:path";
-
-const helperDir = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = path.dirname(helperDir);
-
-await import("tsx/esm");
-const parseModuleUrl = pathToFileURL(path.join(projectRoot, "src/lib/firewall/parse.ts")).href;
-const { parseFwArgv } = await import(parseModuleUrl);
+import { parseFwArgv } from "../src/lib/firewall/parse-argv.mjs";
 
 const parsed = parseFwArgv(process.argv.slice(2));
 if (!parsed.ok) {

@@ -23,6 +23,16 @@ export function slugFromName(name: string): string {
   return slug || "project";
 }
 
+export function parseComposeTargetPort(yamlText: string, serviceName: string): number | null {
+  const services = parseComposeServices(yamlText);
+  return services.find((service) => service.name === serviceName)?.containerPort ?? null;
+}
+
+export function parseComposeHostPort(yamlText: string, serviceName: string): number | null {
+  const services = parseComposeServices(yamlText);
+  return services.find((service) => service.name === serviceName)?.hostPort ?? null;
+}
+
 export function parseComposeServices(yamlText: string): ParsedComposeService[] {
   const doc = yaml.load(yamlText);
   if (!doc || typeof doc !== "object" || Array.isArray(doc)) return [];
@@ -32,7 +42,13 @@ export function parseComposeServices(yamlText: string): ParsedComposeService[] {
   return Object.entries(services as Record<string, unknown>).map(([name, spec]) => {
     const fields = spec && typeof spec === "object" && !Array.isArray(spec) ? (spec as Record<string, unknown>) : {};
     const containerName = typeof fields.container_name === "string" ? fields.container_name : null;
-    return { name, hostPort: firstHostPort(fields.ports), containerName };
+    const published = firstPublishedPort(fields.ports);
+    return {
+      name,
+      hostPort: published.hostPort,
+      containerPort: published.containerPort,
+      containerName,
+    };
   });
 }
 
@@ -79,30 +95,52 @@ function uniqueSlug(db: Database.Database, base: string): string {
   return slug;
 }
 
-function firstHostPort(ports: unknown): number | null {
-  if (!Array.isArray(ports) || ports.length === 0) return null;
+function firstPublishedPort(ports: unknown): { hostPort: number | null; containerPort: number | null } {
+  if (!Array.isArray(ports) || ports.length === 0) {
+    return { hostPort: null, containerPort: null };
+  }
   return parsePortEntry(ports[0]);
 }
 
-function parsePortEntry(entry: unknown): number | null {
-  if (typeof entry === "number") return numericPort(entry);
+function parsePortEntry(entry: unknown): { hostPort: number | null; containerPort: number | null } {
+  if (typeof entry === "number") {
+    const port = numericPort(entry);
+    return { hostPort: port, containerPort: port };
+  }
   if (typeof entry === "string") return parseShortPort(entry);
   if (entry && typeof entry === "object") {
-    return parsePortValue((entry as { published?: unknown }).published);
+    const item = entry as { published?: unknown; target?: unknown };
+    const hostPort = parsePortValue(item.published);
+    const containerPort = parsePortValue(item.target) ?? hostPort;
+    return { hostPort, containerPort };
   }
-  return null;
+  return { hostPort: null, containerPort: null };
 }
 
-function parseShortPort(spec: string): number | null {
+function parseShortPort(spec: string): { hostPort: number | null; containerPort: number | null } {
   const trimmed = spec.trim();
-  const ipv6 = trimmed.match(/^\[.*?\]:(\S+)/);
-  if (ipv6) return parsePortValue(ipv6[1].split(":")[0]);
+  const ipv6 = trimmed.match(/^\[.*?\]:(\S+)$/);
+  if (ipv6) {
+    const rest = ipv6[1].split(":");
+    if (rest.length === 1) {
+      const port = parsePortValue(rest[0]);
+      return { hostPort: port, containerPort: port };
+    }
+    return { hostPort: parsePortValue(rest[0]), containerPort: parsePortValue(rest[1]) ?? parsePortValue(rest[0]) };
+  }
 
   const parts = trimmed.split(":");
-  if (parts.length === 1) return parsePortValue(parts[0]);
-  if (parts.length === 2) return parsePortValue(parts[0]);
-  if (parts.length === 3) return parsePortValue(parts[1]);
-  return null;
+  if (parts.length === 1) {
+    const port = parsePortValue(parts[0]);
+    return { hostPort: port, containerPort: port };
+  }
+  if (parts.length === 2) {
+    return { hostPort: parsePortValue(parts[0]), containerPort: parsePortValue(parts[1]) ?? parsePortValue(parts[0]) };
+  }
+  if (parts.length === 3) {
+    return { hostPort: parsePortValue(parts[1]), containerPort: parsePortValue(parts[2]) ?? parsePortValue(parts[1]) };
+  }
+  return { hostPort: null, containerPort: null };
 }
 
 function parsePortValue(value: unknown): number | null {

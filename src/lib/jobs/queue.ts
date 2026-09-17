@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { EnqueueInput, EnqueueResult, JobLogStream, JobRow, TargetAccess } from "./types";
+import type { EnqueueInput, EnqueueResult, JobLogStream, JobRow, JobStatus, TargetAccess } from "./types";
 
 const LIFECYCLE_TYPES = new Set(["start", "stop", "restart"]);
 
@@ -41,6 +41,18 @@ export function appendLog(db: Database.Database, jobId: number, stream: JobLogSt
 
 export function getJob(db: Database.Database, jobId: number): JobRow | undefined {
   return db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId) as JobRow | undefined;
+}
+
+export function failActiveJob(db: Database.Database, jobId: number, summary: string): void {
+  const row = db.prepare("SELECT status FROM jobs WHERE id = ?").get(jobId) as { status: JobStatus } | undefined;
+  if (!row || (row.status !== "queued" && row.status !== "running")) {
+    return;
+  }
+  db.prepare("UPDATE jobs SET status = 'failed', error_summary = ?, finished_at = ? WHERE id = ?").run(
+    summary,
+    new Date().toISOString(),
+    jobId,
+  );
 }
 
 export function listJobLogs(
