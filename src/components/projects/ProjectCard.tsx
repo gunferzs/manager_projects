@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import type { NetworkProfile } from "../../lib/network/lan";
 import type { ProjectCardModel } from "../../lib/projects/present";
-import { openUrl } from "../../lib/status/labels";
+import { openUrl, shareUrl } from "../../lib/status/labels";
 import { AccessChip } from "./AccessChip";
 import { ProjectPhoto } from "./ProjectPhoto";
 import { StartDialog } from "./StartDialog";
@@ -22,6 +22,8 @@ export function ProjectCard({ project, lanIp, dockerOk, networkProfile }: Projec
   const canOpen =
     project.status !== "stopped" && project.hasUi && project.uiPort != null;
   const href = canOpen && project.uiPort != null ? openUrl(project.access, lanIp, project.uiPort) : null;
+  const lanHref =
+    canOpen && project.uiPort != null ? shareUrl(project.access, lanIp, project.uiPort) : null;
   const startDisabled = !dockerOk || project.busy || !project.hasCompose;
 
   return (
@@ -39,6 +41,7 @@ export function ProjectCard({ project, lanIp, dockerOk, networkProfile }: Projec
             )}
           </div>
           <p className="ports">{project.ports.length > 0 ? project.ports.join(", ") : "порты не заданы"}</p>
+          {lanHref ? <p className="ports lan-share">LAN: {lanHref}</p> : null}
         </div>
       </Link>
       <div className="card-actions">

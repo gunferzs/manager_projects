@@ -22,7 +22,8 @@ export async function probeHttp(port: number, path: string): Promise<boolean> {
   const url = `http://127.0.0.1:${port}${path.startsWith("/") ? path : `/${path}`}`;
 
   try {
-    const response = await withTimeout(fetch(url), PROBE_TIMEOUT_MS);
+    // Do not follow redirects: apps often redirect to NEXTAUTH_URL on another host/port.
+    const response = await withTimeout(fetch(url, { redirect: "manual" }), PROBE_TIMEOUT_MS);
     return response.status >= 200 && response.status < 400;
   } catch {
     return false;

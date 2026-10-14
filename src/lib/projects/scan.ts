@@ -9,6 +9,7 @@ import {
   insertDiscoveredProject,
   insertDraftServices,
   listProjectServices,
+  syncComposeServices,
 } from "./repo";
 import type { ParsedComposeService } from "./types";
 
@@ -76,9 +77,14 @@ export function applyScan(
       created.push(item.name);
     }
 
-    if (listProjectServices(db, project.id).length === 0 && composeFile && fs.existsSync(composeFile)) {
+    if (composeFile && fs.existsSync(composeFile)) {
       const yamlText = fs.readFileSync(composeFile, "utf8");
-      insertDraftServices(db, project.id, parseComposeServices(yamlText));
+      const parsed = parseComposeServices(yamlText);
+      if (listProjectServices(db, project.id).length === 0) {
+        insertDraftServices(db, project.id, parsed);
+      } else {
+        syncComposeServices(db, project.id, parsed);
+      }
     }
   }
 
@@ -118,7 +124,11 @@ function parsePortEntry(entry: unknown): { hostPort: number | null; containerPor
 }
 
 function parseShortPort(spec: string): { hostPort: number | null; containerPort: number | null } {
-  const trimmed = spec.trim();
+  // `${APP_HOST_PORT:-3000}:3000` → host 3000 (not `0.0.0.0:3000` with a null host).
+  const trimmed = spec
+    .trim()
+    .replace(/\$\{[^}:]*:-(\d+)\}/g, "$1")
+    .replace(/\$\{[^}]+\}/g, "0.0.0.0");
   const ipv6 = trimmed.match(/^\[.*?\]:(\S+)$/);
   if (ipv6) {
     const rest = ipv6[1].split(":");

@@ -57,6 +57,14 @@ export function updateServiceHostPort(db: Database.Database, serviceId: number, 
   db.prepare("UPDATE project_services SET host_port = ? WHERE id = ?").run(hostPort, serviceId);
 }
 
+export function updateProjectComposeFile(db: Database.Database, projectId: number, composeFile: string): void {
+  db.prepare("UPDATE projects SET compose_file = ?, updated_at = ? WHERE id = ?").run(
+    composeFile,
+    new Date().toISOString(),
+    projectId,
+  );
+}
+
 export function insertDraftServices(
   db: Database.Database,
   projectId: number,
@@ -67,22 +75,56 @@ export function insertDraftServices(
       project_id, name, container_name, host_port, health_kind, health_path, is_primary, is_ui
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
-  let assignedPrimary = false;
+  const existing = listProjectServices(db, projectId);
+  const hasPrimary = existing.some((service) => service.is_primary === 1);
+  let assignedPrimary = hasPrimary;
   for (const service of services) {
     const hasPort = service.hostPort != null;
-    const isPrimary = !assignedPrimary && !isDbService(service.name);
+    const dbLike = isDbService(service.name);
+    const isPrimary = !assignedPrimary && !dbLike;
     if (isPrimary) assignedPrimary = true;
     insert.run(
       projectId,
       service.name,
       service.containerName,
       service.hostPort,
-      hasPort ? "http" : "none",
-      hasPort ? "/health" : null,
+      dbLike ? "tcp" : hasPort ? "http" : "none",
+      dbLike || !hasPort ? null : "/",
       isPrimary ? 1 : 0,
       isUiService(service.name) ? 1 : 0,
     );
   }
+}
+
+/** Add services that appeared in compose later; fill null host ports; keep remapped ports. */
+export function syncComposeServices(
+  db: Database.Database,
+  projectId: number,
+  services: ParsedComposeService[],
+): { added: string[]; filledPorts: string[] } {
+  const existing = listProjectServices(db, projectId);
+  const byName = new Map(existing.map((service) => [service.name, service]));
+  const missing = services.filter((service) => !byName.has(service.name));
+  if (missing.length > 0) {
+    insertDraftServices(db, projectId, missing);
+  }
+
+  const filledPorts: string[] = [];
+  for (const service of services) {
+    const row = byName.get(service.name);
+    if (!row) continue;
+    if (row.host_port == null && service.hostPort != null) {
+      updateServiceHostPort(db, row.id, service.hostPort);
+      filledPorts.push(service.name);
+    }
+    if (isDbService(service.name) && row.health_kind !== "tcp") {
+      db.prepare(
+        "UPDATE project_services SET health_kind = 'tcp', health_path = NULL WHERE id = ?",
+      ).run(row.id);
+    }
+  }
+
+  return { added: missing.map((service) => service.name), filledPorts };
 }
 
 function isDbService(name: string): boolean {
@@ -90,5 +132,5 @@ function isDbService(name: string): boolean {
 }
 
 function isUiService(name: string): boolean {
-  return /web|frontend|ui/i.test(name);
+  return /^(app|web|frontend|ui)$/i.test(name) || /web|frontend|ui/i.test(name);
 }

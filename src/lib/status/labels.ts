@@ -37,11 +37,21 @@ export function accessLabel(level: AccessLevel): string {
   return ACCESS_LABELS[level];
 }
 
-export function openUrl(level: AccessLevel, lanIp: string | null, port: number): string {
+export function openUrl(_level: AccessLevel, _lanIp: string | null, port: number): string {
+  return localOpenUrl(port);
+}
+
+/** Link for opening from this machine (manager UI). Always loopback — LAN hairpin often breaks under VPN. */
+export function localOpenUrl(port: number): string {
+  return `http://127.0.0.1:${port}`;
+}
+
+/** URL to open from another device on the LAN (phone / other PC). */
+export function shareUrl(level: AccessLevel, lanIp: string | null, port: number): string | null {
   if ((level === "lan" || level === "lan_unconfirmed") && lanIp) {
     return `http://${lanIp}:${port}`;
   }
-  return `http://127.0.0.1:${port}`;
+  return null;
 }
 
 export function statusChipClass(status: ProjectStatus): string {

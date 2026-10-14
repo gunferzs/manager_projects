@@ -7,11 +7,13 @@ import type { JobStatus, JobType, TargetAccess } from "../jobs/types";
 import type { NetworkProfile } from "../network/lan";
 import { getLanIpv4, getNetworkProfile } from "../network/lan";
 import { resolveAccess, type AccessLevel } from "../status/access";
-import { aggregateStatus, type ProjectStatus } from "../status/aggregate";
+import { aggregateStatus, type ContainerFact, type ProjectStatus } from "../status/aggregate";
 import { probeHttp, probeTcp } from "../status/probes";
 import { isTotpEnabled } from "../auth/totp";
 import { getRuntimeDb } from "../db/client";
 import { getProjectBySlug, listProjects, listProjectServices } from "./repo";
+import { listComposeCandidates } from "./compose-candidates";
+import { pickPrimaryService } from "./runtime-settings";
 import type { ProjectRow, ProjectServiceRow } from "./types";
 
 export type ProjectCardModel = {
@@ -53,6 +55,11 @@ export type ProjectDetailModel = {
   lastStartAccess: TargetAccess | null;
   services: ServiceRowModel[];
   lastJob: JobViewModel | null;
+  rootPath: string;
+  composeFile: string | null;
+  composeCandidates: string[];
+  primaryPort: number | null;
+  primaryServiceName: string | null;
 };
 
 export type ListPageData = {
@@ -79,6 +86,52 @@ export function firewallPortsForSlug(names: string[], slug: string): number[] {
     if (!/^\d+$/.test(rest)) return [];
     return [Number(rest)];
   });
+}
+
+type OpenableService = { name: string; host_port: number | null; is_ui: number; is_primary: number };
+
+export function resolveServicePort(
+  service: { name: string; host_port: number | null },
+  containers: ContainerFact[],
+): number | null {
+  if (service.host_port != null) return service.host_port;
+  const container = containers.find((item) => item.name === service.name);
+  return container?.binds.find((bind) => bind.port > 0)?.port ?? null;
+}
+
+export function pickOpenTarget(
+  services: OpenableService[],
+  containers: ContainerFact[],
+): { port: number } | null {
+  const ranked = [
+    ...services.filter((service) => service.is_ui === 1),
+    ...services.filter((service) => service.is_ui !== 1 && service.is_primary === 1),
+  ];
+  for (const service of ranked) {
+    const port = resolveServicePort(service, containers);
+    if (port != null) return { port };
+  }
+  return null;
+}
+
+export function buildRuntimeSettingsFields(
+  row: ProjectRow,
+  services: ProjectServiceRow[],
+): {
+  rootPath: string;
+  composeFile: string | null;
+  composeCandidates: string[];
+  primaryPort: number | null;
+  primaryServiceName: string | null;
+} {
+  const primary = pickPrimaryService(services);
+  return {
+    rootPath: row.root_path,
+    composeFile: row.compose_file,
+    composeCandidates: listComposeCandidates(row.root_path, row.compose_file),
+    primaryPort: primary?.host_port ?? null,
+    primaryServiceName: primary?.name ?? null,
+  };
 }
 
 function isBusyJob(job: { type: JobType; status: JobStatus } | undefined): boolean {
@@ -123,7 +176,7 @@ async function liveFacts(db: Database.Database, row: ProjectRow, dockerOk: boole
     firewallPorts: firewallPortsForSlug(firewallNames, row.slug),
   });
   const latest = getLatestJob(db, row.id);
-  return { services, hasCompose, probes, status, access, busy: isBusyJob(latest), latest };
+  return { services, containers, hasCompose, probes, status, access, busy: isBusyJob(latest), latest };
 }
 
 function toJobView(db: Database.Database, job: NonNullable<ReturnType<typeof getLatestJob>>): JobViewModel {
@@ -149,9 +202,7 @@ export async function loadListPageData(): Promise<ListPageData> {
   const projects = await Promise.all(
     listProjects(db).map(async (row) => {
       const live = await liveFacts(db, row, dockerOk, firewallNames);
-      const ui =
-        live.services.find((service) => service.is_ui === 1 && service.host_port != null) ??
-        live.services.find((service) => service.is_primary === 1 && service.host_port != null);
+      const open = pickOpenTarget(live.services, live.containers);
       return {
         slug: row.slug,
         name: row.name,
@@ -159,11 +210,11 @@ export async function loadListPageData(): Promise<ListPageData> {
         status: live.status,
         access: live.access,
         ports: live.services
-          .map((service) => service.host_port)
+          .map((service) => resolveServicePort(service, live.containers))
           .filter((port): port is number => port != null),
         hasCompose: live.hasCompose,
-        hasUi: live.services.some((service) => service.is_ui === 1),
-        uiPort: ui?.host_port ?? null,
+        hasUi: open != null,
+        uiPort: open?.port ?? null,
         busy: live.busy,
       } satisfies ProjectCardModel;
     }),
@@ -190,6 +241,7 @@ export async function loadDetailPageData(slug: string): Promise<DetailPageData |
   const dockerOk = ls.ok;
   const firewallNames = fw.ok ? (fw.names ?? []) : [];
   const live = await liveFacts(db, row, dockerOk, firewallNames);
+  const runtime = buildRuntimeSettingsFields(row, live.services);
   return {
     dockerOk,
     lanIp,
@@ -207,10 +259,11 @@ export async function loadDetailPageData(slug: string): Promise<DetailPageData |
       lastStartAccess: getLastSuccessfulStartAccess(db, row.id),
       services: live.services.map((service) => ({
         name: service.name,
-        port: service.host_port,
+        port: resolveServicePort(service, live.containers),
         probeOk: live.probes.find((probe) => probe.serviceName === service.name)?.ok ?? null,
       })),
       lastJob: live.latest ? toJobView(db, live.latest) : null,
+      ...runtime,
     },
   };
 }

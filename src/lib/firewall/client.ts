@@ -23,7 +23,7 @@ export function runFirewall(command: FwCommand): Promise<FirewallResult> {
   return new Promise((resolve) => {
     const script = helperScriptPath();
     const child = spawn(process.execPath, [script, ...commandToArgv(command)], {
-      env: { ...process.env, MGR_FW_DRY: process.env.MGR_FW_DRY ?? "1" },
+      env: { ...process.env },
       windowsHide: true,
     });
 

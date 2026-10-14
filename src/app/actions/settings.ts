@@ -7,6 +7,7 @@ import { readRequestIp } from "../../lib/auth/client-ip";
 import { COOKIE_SESSION } from "../../lib/auth/cookies";
 import { resolveIdentity } from "../../lib/auth/guard";
 import { requireSessionForAction } from "../../lib/auth/require-action";
+import { MASTER_KEY_MISSING_MESSAGE } from "../../lib/auth/messages";
 import { changeKey, confirmPendingTotp, startTotpEnroll } from "../../lib/auth/settings";
 import { validateSetupFields } from "../../lib/auth/setup-form";
 import { getRuntimeDb } from "../../lib/db/client";
@@ -20,7 +21,8 @@ export type SettingsFormState = {
 } | null;
 
 function masterKey(): string | null {
-  return process.env.MANAGER_MASTER_KEY ?? null;
+  const key = process.env.MANAGER_MASTER_KEY?.trim();
+  return key ? key : null;
 }
 
 function currentSession(): { token: string; sessionId?: number } {
@@ -50,7 +52,7 @@ export async function changeKeyAction(
 
   const key = masterKey();
   if (!key) {
-    return { error: "Неверные данные" };
+    return { error: MASTER_KEY_MISSING_MESSAGE };
   }
 
   const session = currentSession();
@@ -76,7 +78,7 @@ export async function enrollTotpStartAction(
   await requireSessionForAction();
   const key = masterKey();
   if (!key) {
-    return { error: "Неверные данные" };
+    return { error: MASTER_KEY_MISSING_MESSAGE };
   }
   currentSession();
   const currentCode = String(formData.get("totpCode") ?? "").trim();
@@ -94,7 +96,7 @@ export async function enrollTotpConfirmAction(
   await requireSessionForAction();
   const key = masterKey();
   if (!key) {
-    return { error: "Неверные данные" };
+    return { error: MASTER_KEY_MISSING_MESSAGE };
   }
   const session = currentSession();
   const result = confirmPendingTotp(

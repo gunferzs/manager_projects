@@ -9,6 +9,7 @@ import { AppHeader } from "../components/layout/AppHeader";
 import { JobLog } from "../components/jobs/JobLog";
 import { AccessChip } from "../components/projects/AccessChip";
 import { ProjectPhoto } from "../components/projects/ProjectPhoto";
+import { RuntimeSettingsForm } from "../components/projects/RuntimeSettingsForm";
 import { ServiceTable } from "../components/projects/ServiceTable";
 import { StartDialog } from "../components/projects/StartDialog";
 import { StatusChip } from "../components/projects/StatusChip";
@@ -143,6 +144,13 @@ export function ProjectDetailScreen({
       ) : (
         <p>Нет compose-файла — запуск недоступен.</p>
       )}
+      <RuntimeSettingsForm
+        slug={project.slug}
+        composeFile={project.composeFile}
+        composeCandidates={project.composeCandidates}
+        primaryPort={project.primaryPort}
+        primaryServiceName={project.primaryServiceName}
+      />
       <ServiceTable services={project.services} />
       <h3>Лог задачи</h3>
       <JobLog lines={job?.logs ?? []} />

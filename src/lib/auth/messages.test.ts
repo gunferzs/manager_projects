@@ -1,9 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { INVALID_DATA_MESSAGE, formatLockMessage } from "./messages";
+import {
+  INVALID_DATA_MESSAGE,
+  MASTER_KEY_MISSING_MESSAGE,
+  formatLockMessage,
+} from "./messages";
 
 test("login and totp share one invalid message", () => {
   assert.equal(INVALID_DATA_MESSAGE, "Неверные данные");
+});
+
+test("settings surface missing master key distinctly", () => {
+  assert.equal(MASTER_KEY_MISSING_MESSAGE, "Не задан MANAGER_MASTER_KEY в .env");
 });
 
 test("lock message uses remaining minutes", () => {

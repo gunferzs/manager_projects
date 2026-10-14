@@ -4,13 +4,16 @@ import os from "node:os";
 import path from "node:path";
 import type { ContainerFact } from "../status/aggregate";
 import type { ProjectRow } from "../projects/types";
-import type { ComposePortRemap, TargetAccess } from "../jobs/types";
+import type { ComposePortRemap, ComposeUpOptions, TargetAccess } from "../jobs/types";
+import { getLanIpv4 } from "../network/lan";
+import { buildComposePortOverlay } from "./port-overlay";
 import type { ComposeListItem } from "./types";
 
 export async function* composeUp(
   project: ProjectRow,
   access: TargetAccess,
   remaps: ComposePortRemap[] = [],
+  options: ComposeUpOptions = {},
 ): AsyncIterable<string> {
   const file = requireComposeFile(project);
   const name = project.compose_project ?? project.slug;
@@ -22,11 +25,16 @@ export async function* composeUp(
       yield "compose публикует как есть";
     }
   }
+  const publicHost =
+    options.publicHost ??
+    (access === "lan" ? (await getLanIpv4()) ?? "127.0.0.1" : "127.0.0.1");
   const args = ["compose", "-f", file];
-  const overlay = remaps.length > 0 ? writePortOverride(project.slug, remaps) : null;
+  const overlay =
+    remaps.length > 0 ? writePortOverride(project.slug, remaps, publicHost) : null;
   if (overlay) {
     args.push("-f", overlay);
     yield `порты переназначены: ${remaps.map((item) => `${item.service}→${item.hostPort}`).join(", ")}`;
+    yield `NEXTAUTH_URL host: ${publicHost}`;
   }
   args.push("-p", name, "up", "-d", "--build");
   try {
@@ -45,15 +53,9 @@ export async function* composeUp(
   }
 }
 
-function writePortOverride(slug: string, remaps: ComposePortRemap[]): string {
-  const lines = ["services:"];
-  for (const remap of remaps) {
-    lines.push(`  ${remap.service}:`);
-    lines.push("    ports: !override");
-    lines.push(`      - "${remap.hostPort}:${remap.containerPort}"`);
-  }
+function writePortOverride(slug: string, remaps: ComposePortRemap[], publicHost: string): string {
   const overlay = path.join(os.tmpdir(), `mgrproj-${slug}-ports.yml`);
-  fs.writeFileSync(overlay, `${lines.join("\n")}\n`, "utf8");
+  fs.writeFileSync(overlay, buildComposePortOverlay(remaps, publicHost), "utf8");
   return overlay;
 }
 

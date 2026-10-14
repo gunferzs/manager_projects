@@ -146,6 +146,72 @@ test("start overlays compose host port when db already stores a remapped port", 
   }
 });
 
+test("start always overlays published ports even when they match compose", async () => {
+  const { db, close } = withTempDb();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mgr-compose-match-"));
+  const composeFile = path.join(root, "docker-compose.yml");
+  fs.writeFileSync(
+    composeFile,
+    "services:\n  web:\n    image: nginx\n    ports:\n      - \"3000:80\"\n",
+    "utf8",
+  );
+  try {
+    const projectId = insertFakeProject(db, { hostPort: 3000, rootPath: root, composeFile });
+    const q = enqueue(db, { projectId, type: "start", targetAccess: "machine" });
+    if (!q.ok) throw new Error("enqueue");
+    let seenRemaps: Array<{ service: string; hostPort: number; containerPort: number }> | undefined;
+    let seenOptions: { publicHost?: string } | undefined;
+    await runJob(
+      db,
+      q.jobId,
+      idleDeps({
+        async *composeUp(_project, _access, remaps, options) {
+          seenRemaps = remaps;
+          seenOptions = options;
+        },
+      }),
+    );
+    const job = db.prepare("SELECT status FROM jobs WHERE id = ?").get(q.jobId) as { status: string };
+    assert.equal(job.status, "succeeded");
+    assert.deepEqual(seenRemaps, [{ service: "web", hostPort: 3000, containerPort: 80 }]);
+    assert.equal(seenOptions?.publicHost, "127.0.0.1");
+  } finally {
+    close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("lan start passes LAN publicHost into composeUp", async () => {
+  const { db, close } = withTempDb();
+  try {
+    const projectId = insertFakeProject(db, { hostPort: 3000 });
+    const q = enqueue(db, { projectId, type: "start", targetAccess: "lan" });
+    if (!q.ok) throw new Error("enqueue");
+    let seenOptions: { publicHost?: string } | undefined;
+    await runJob(
+      db,
+      q.jobId,
+      idleDeps({
+        async *composeUp(_project, _access, _remaps, options) {
+          seenOptions = options;
+        },
+        async firewallAllow() {
+          return { ok: true };
+        },
+        async resolvePublicHost(access) {
+          assert.equal(access, "lan");
+          return "192.168.1.89";
+        },
+      }),
+    );
+    const job = db.prepare("SELECT status FROM jobs WHERE id = ?").get(q.jobId) as { status: string };
+    assert.equal(job.status, "succeeded");
+    assert.equal(seenOptions?.publicHost, "192.168.1.89");
+  } finally {
+    close();
+  }
+});
+
 test("lan start does not composeUp when firewallAllow fails", async () => {
   const { db, close } = withTempDb();
   try {
@@ -198,6 +264,35 @@ test("start streams compose output and succeeds", async () => {
       .prepare("SELECT line FROM job_logs WHERE job_id = ? ORDER BY seq")
       .all(q.jobId) as Array<{ line: string }>;
     assert.ok(lines.some((row) => row.line === "Creating web"));
+  } finally {
+    close();
+  }
+});
+
+test("start fails when a container exits after composeUp", async () => {
+  const { db, close } = withTempDb();
+  try {
+    const projectId = insertFakeProject(db, { hostPort: 3000 });
+    const q = enqueue(db, { projectId, type: "start", targetAccess: "machine" });
+    if (!q.ok) throw new Error("enqueue");
+    await runJob(
+      db,
+      q.jobId,
+      idleDeps({
+        async *composeUp() {
+          yield "Container analytics Started";
+        },
+        async listContainers() {
+          return [{ name: "analytics", running: false, health: "none", binds: [] }];
+        },
+      }),
+    );
+    const job = db.prepare("SELECT status, error_summary FROM jobs WHERE id = ?").get(q.jobId) as {
+      status: string;
+      error_summary: string;
+    };
+    assert.equal(job.status, "failed");
+    assert.match(job.error_summary, /analytics/);
   } finally {
     close();
   }

@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { writeAudit } from "../audit/log";
 import fs from "node:fs";
+import { getLanIpv4 } from "../network/lan";
 import { parseComposeHostPort, parseComposeTargetPort } from "../projects/scan";
 import { listProjectServices, updateServiceHostPort } from "../projects/repo";
 import type { ProjectRow } from "../projects/types";
@@ -74,14 +75,11 @@ async function runStartLike(db: Database.Database, job: JobRow, deps: JobDeps): 
     const composeHost = yamlText ? parseComposeHostPort(yamlText, service.name) : null;
     const containerPort =
       (yamlText ? parseComposeTargetPort(yamlText, service.name) : null) ?? composeHost ?? service.host_port;
-    const publishedFromCompose = composeHost ?? service.host_port;
-    if (next !== publishedFromCompose) {
-      remaps.push({
-        service: service.name,
-        hostPort: next,
-        containerPort,
-      });
-    }
+    remaps.push({
+      service: service.name,
+      hostPort: next,
+      containerPort,
+    });
   }
 
   const access: TargetAccess = job.target_access === "lan" ? "lan" : "machine";
@@ -97,11 +95,26 @@ async function runStartLike(db: Database.Database, job: JobRow, deps: JobDeps): 
     }
   }
 
+  const publicHost = deps.resolvePublicHost
+    ? await deps.resolvePublicHost(access)
+    : access === "lan"
+      ? (await getLanIpv4()) ?? "127.0.0.1"
+      : "127.0.0.1";
+
   if (job.type === "restart") {
     await streamCompose(db, job.id, () => deps.composeStop(project));
   }
 
-  await streamCompose(db, job.id, () => deps.composeUp(project, access, remaps));
+  await streamCompose(db, job.id, () => deps.composeUp(project, access, remaps, { publicHost }));
+  if (deps.listContainers) {
+    const facts = await deps.listContainers();
+    const down = facts.filter((container) => !container.running);
+    if (down.length > 0) {
+      const names = down.map((container) => container.name).join(", ");
+      failJob(db, job.id, `Контейнер не запустился: ${names}`);
+      return;
+    }
+  }
   succeedJob(db, job.id);
 }
 

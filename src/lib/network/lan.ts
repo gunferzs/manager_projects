@@ -3,6 +3,8 @@ import os from "node:os";
 
 export type NetworkProfile = "Public" | "Private" | "Domain" | "unknown";
 
+export type LanAddress = { ip: string; alias?: string };
+
 function isLoopback(ip: string): boolean {
   return ip === "127.0.0.1" || ip.startsWith("127.");
 }
@@ -11,8 +13,24 @@ function isApipa(ip: string): boolean {
   return ip.startsWith("169.254.");
 }
 
-export function pickLanIpv4(ips: string[]): string | null {
-  return ips.find((ip) => !isLoopback(ip) && !isApipa(ip)) ?? null;
+const SKIP_ALIAS =
+  /vethernet|vmware|virtualbox|hyper-v|wsl|docker|loopback|bluetooth|vpn|amnezia|tailscale|zerotier|hamachi|radmin|vmnet/i;
+
+function isSkippedAlias(alias: string | undefined): boolean {
+  return alias != null && SKIP_ALIAS.test(alias);
+}
+
+function lanRank(ip: string): number {
+  if (ip.startsWith("192.168.")) return 0;
+  if (ip.startsWith("10.")) return 1;
+  return 2;
+}
+
+export function pickLanIpv4(ips: Array<string | LanAddress>): string | null {
+  const rows = ips.map((item) => (typeof item === "string" ? { ip: item } : item));
+  const usable = rows.filter((row) => !isLoopback(row.ip) && !isApipa(row.ip) && !isSkippedAlias(row.alias));
+  usable.sort((a, b) => lanRank(a.ip) - lanRank(b.ip));
+  return usable[0]?.ip ?? null;
 }
 
 export function profileFromCategories(categories: string[]): NetworkProfile {
@@ -53,12 +71,12 @@ function asArray(parsed: unknown): Record<string, unknown>[] {
 
 function firstOsLanIp(): string | null {
   const ifaces = os.networkInterfaces();
-  const ips: string[] = [];
-  for (const addrs of Object.values(ifaces)) {
+  const ips: LanAddress[] = [];
+  for (const [alias, addrs] of Object.entries(ifaces)) {
     for (const addr of addrs ?? []) {
       const family = String(addr.family) === "IPv4" || String(addr.family) === "4";
       if (family && !addr.internal) {
-        ips.push(addr.address);
+        ips.push({ ip: addr.address, alias });
       }
     }
   }
@@ -72,12 +90,18 @@ export async function getLanIpv4(): Promise<string | null> {
         "-NoProfile",
         "-NonInteractive",
         "-Command",
-        "Get-NetIPAddress -AddressFamily IPv4 | ConvertTo-Json -Compress",
+        "Get-NetIPAddress -AddressFamily IPv4 | Select-Object IPAddress,InterfaceAlias | ConvertTo-Json -Compress",
       ]);
       const rows = asArray(JSON.parse(out));
-      const ips = rows
-        .map((row) => row.IPAddress)
-        .filter((ip): ip is string => typeof ip === "string");
+      const ips = rows.flatMap((row) => {
+        if (typeof row.IPAddress !== "string") return [];
+        return [
+          {
+            ip: row.IPAddress,
+            alias: typeof row.InterfaceAlias === "string" ? row.InterfaceAlias : undefined,
+          },
+        ];
+      });
       const picked = pickLanIpv4(ips);
       if (picked) return picked;
     } catch {

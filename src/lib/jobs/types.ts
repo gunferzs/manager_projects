@@ -1,3 +1,4 @@
+import type { ContainerFact } from "../status/aggregate";
 import type { ProjectRow } from "../projects/types";
 
 export type JobType = "start" | "stop" | "restart" | "scan";
@@ -24,16 +25,23 @@ export type ComposePortRemap = {
   containerPort: number;
 };
 
+export type ComposeUpOptions = {
+  publicHost?: string;
+};
+
 export type JobDeps = {
   composeUp(
     project: ProjectRow,
     access: TargetAccess,
     remaps?: ComposePortRemap[],
+    options?: ComposeUpOptions,
   ): AsyncIterable<string>;
   composeStop(project: ProjectRow): AsyncIterable<string>;
   listPorts(): Promise<PortInspect[]>;
+  listContainers?(): Promise<ContainerFact[]>;
   firewallAllow?(ports: number[]): Promise<{ ok: true } | { ok: false; message: string }>;
   firewallRevoke?(prefix: string): Promise<void>;
+  resolvePublicHost?(access: TargetAccess): Promise<string>;
 };
 
 export type JobRow = {
